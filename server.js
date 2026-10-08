@@ -16,6 +16,8 @@ import Visitor from './models/Visitor.js'
 import Subscriber from './models/Subscriber.js'
 import EmailCampaign from './models/EmailCampaign.js'
 import Insider from './models/Insider.js'
+import CommitteeMember from './models/CommitteeMember.js'
+import MediaBuzz from './models/MediaBuzz.js'
 
 dotenv.config()
 
@@ -917,6 +919,130 @@ app.delete('/api/insiders/:id', async (req, res) => {
     res.json({ message: 'Insider story deleted successfully', id: req.params.id })
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete insider story', details: err.message })
+  }
+})
+
+// ─── MANAGING COMMITTEE API (CRUD) ──────────────────────────────────────────
+// GET all committee members
+app.get('/api/committee', async (req, res) => {
+  try {
+    const members = await CommitteeMember.find().sort({ order: 1, createdAt: 1 })
+    res.json(members)
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch committee members', details: err.message })
+  }
+})
+
+// POST create committee member
+app.post('/api/committee', async (req, res) => {
+  try {
+    const data = req.body
+    if (!data.id) {
+      data.id = (data.name || 'member').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString().slice(-4)
+    }
+    const member = new CommitteeMember(data)
+    await member.save()
+    res.status(201).json(member)
+  } catch (err) {
+    res.status(400).json({ error: 'Failed to create committee member', details: err.message })
+  }
+})
+
+// PUT update committee member
+app.put('/api/committee/:id', async (req, res) => {
+  try {
+    let member = await CommitteeMember.findOneAndUpdate(
+      { id: req.params.id },
+      { $set: req.body },
+      { new: true, runValidators: true }
+    )
+    if (!member && req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      member = await CommitteeMember.findByIdAndUpdate(
+        req.params.id,
+        { $set: req.body },
+        { new: true, runValidators: true }
+      )
+    }
+    if (!member) return res.status(404).json({ error: 'Committee member not found' })
+    res.json(member)
+  } catch (err) {
+    res.status(400).json({ error: 'Failed to update committee member', details: err.message })
+  }
+})
+
+// DELETE committee member
+app.delete('/api/committee/:id', async (req, res) => {
+  try {
+    let member = await CommitteeMember.findOneAndDelete({ id: req.params.id })
+    if (!member && req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      member = await CommitteeMember.findByIdAndDelete(req.params.id)
+    }
+    if (!member) return res.status(404).json({ error: 'Committee member not found' })
+    res.json({ message: 'Committee member deleted successfully', id: req.params.id })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete committee member', details: err.message })
+  }
+})
+
+// ─── MEDIA BUZZ & PRESS API (CRUD) ──────────────────────────────────────────
+// GET all media buzz articles
+app.get('/api/media-buzz', async (req, res) => {
+  try {
+    const articles = await MediaBuzz.find().sort({ order: 1, createdAt: -1 })
+    res.json(articles)
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch media buzz articles', details: err.message })
+  }
+})
+
+// POST create media buzz article
+app.post('/api/media-buzz', async (req, res) => {
+  try {
+    const data = req.body
+    if (!data.id) {
+      data.id = (data.title || 'media').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString().slice(-4)
+    }
+    const item = new MediaBuzz(data)
+    await item.save()
+    res.status(201).json(item)
+  } catch (err) {
+    res.status(400).json({ error: 'Failed to create media buzz article', details: err.message })
+  }
+})
+
+// PUT update media buzz article
+app.put('/api/media-buzz/:id', async (req, res) => {
+  try {
+    let item = await MediaBuzz.findOneAndUpdate(
+      { id: req.params.id },
+      { $set: req.body },
+      { new: true, runValidators: true }
+    )
+    if (!item && req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      item = await MediaBuzz.findByIdAndUpdate(
+        req.params.id,
+        { $set: req.body },
+        { new: true, runValidators: true }
+      )
+    }
+    if (!item) return res.status(404).json({ error: 'Media buzz article not found' })
+    res.json(item)
+  } catch (err) {
+    res.status(400).json({ error: 'Failed to update media buzz article', details: err.message })
+  }
+})
+
+// DELETE media buzz article
+app.delete('/api/media-buzz/:id', async (req, res) => {
+  try {
+    let item = await MediaBuzz.findOneAndDelete({ id: req.params.id })
+    if (!item && req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      item = await MediaBuzz.findByIdAndDelete(req.params.id)
+    }
+    if (!item) return res.status(404).json({ error: 'Media buzz article not found' })
+    res.json({ message: 'Media buzz article deleted successfully', id: req.params.id })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete media buzz article', details: err.message })
   }
 })
 
