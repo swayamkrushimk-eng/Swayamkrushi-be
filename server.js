@@ -528,7 +528,20 @@ app.get('/api/articles', async (req, res) => {
 // GET single article by ID or MongoDB _id
 app.get('/api/articles/:id', async (req, res) => {
   try {
+    const aliasMap = {
+      'story-fifteen-years': 'story-15-years',
+      'story-15-years': 'story-fifteen-years',
+      'story-sowing-seeds': 'story-tailoring',
+      'story-tailoring': 'story-sowing-seeds',
+      'story-group-homes-initiative': 'group-homes',
+      'group-homes': 'story-group-homes-initiative',
+    }
+    const altId = aliasMap[req.params.id]
+
     let article = await Article.findOne({ id: req.params.id })
+    if (!article && altId) {
+      article = await Article.findOne({ id: altId })
+    }
     if (!article && req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       article = await Article.findById(req.params.id)
     }
@@ -559,15 +572,19 @@ app.post('/api/articles', async (req, res) => {
 // PUT update article
 app.put('/api/articles/:id', async (req, res) => {
   try {
+    const updateData = { ...req.body }
+    delete updateData._id
+    delete updateData.__v
+
     let article = await Article.findOneAndUpdate(
       { id: req.params.id },
-      req.body,
+      { $set: updateData },
       { new: true, runValidators: true }
     )
     if (!article && req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       article = await Article.findByIdAndUpdate(
         req.params.id,
-        req.body,
+        { $set: updateData },
         { new: true, runValidators: true }
       )
     }

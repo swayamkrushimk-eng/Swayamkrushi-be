@@ -68,6 +68,14 @@ const articleSchema = new mongoose.Schema(
       type: String,
       default: ''
     },
+    images: {
+      type: [mongoose.Schema.Types.Mixed],
+      default: []
+    },
+    imageUrls: {
+      type: [String],
+      default: []
+    },
     hasThumbnail: {
       type: Boolean,
       default: true
