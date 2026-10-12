@@ -8,7 +8,7 @@ dotenv.config()
 const initialInsiders = [
   {
     id: 'manjula-kalyan',
-    name: 'Ms Manjula Kalyan',
+    name: 'Ms Manjulaa Kalyaan',
     role: 'Founder & Director, Swayamkrushi',
     category: 'Educators & Staff',
     tag: 'FOUNDER REFLECTIONS',
@@ -17,7 +17,7 @@ const initialInsiders = [
     thumbnail: '',
     videoUrl: '',
     quote: 'Every child deserves to live their best life. We don’t just teach them daily routines; we give them dignity, pride, and an eternal family.',
-    description: 'Founder-director Manjula Kalyan recounts the journey from starting with just two girls in a rented house in 1991 to building five-acre group homes, four national awards, and a university-affiliated B.Ed college.',
+    description: 'Founder-director Manjulaa Kalyaan recounts the journey from starting with just two girls in a rented house in 1991 to building five-acre group homes, four national awards, and a university-affiliated B.Ed college.',
     order: 1,
     active: true
   },

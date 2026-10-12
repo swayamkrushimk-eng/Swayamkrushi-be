@@ -60,6 +60,93 @@ const getClientIp = (req) => {
   return req.socket?.remoteAddress || req.ip || '127.0.0.1'
 }
 
+// ─── CLOUDINARY MEDIA DELETION HELPERS ──────────────────────────────────────
+/**
+ * Extracts the public_id and inferred resource_type from any Cloudinary URL.
+ * Supports:
+ * - standard URLs (https://res.cloudinary.com/<cloud>/image/upload/v12345/folder/name.jpg)
+ * - transformation URLs (.../upload/c_scale,w_500/v12345/folder/name.jpg)
+ * - video and raw URLs (.../video/upload/... / .../raw/upload/...)
+ */
+export function extractCloudinaryDetails(url) {
+  if (!url || typeof url !== 'string') return null
+  const cleanUrl = url.trim()
+  if (!cleanUrl.includes('cloudinary.com')) return null
+
+  // Match /<resource_type>/(?:upload|authenticated)/...
+  const match = cleanUrl.match(
+    /\/(image|video|raw)\/(?:upload|authenticated)(?:\/[^\/]+)*\/(?:v\d+\/)?([^\?#]+)/i
+  )
+  if (!match) return null
+
+  const resourceType = match[1].toLowerCase()
+  let publicIdWithExt = match[2]
+
+  // Any transformation tokens prefixing the public ID:
+  // If match[2] still contains transformations (e.g. c_scale,w_500), strip them
+  const segments = publicIdWithExt.split('/')
+  const filteredSegments = segments.filter(
+    (seg) => !seg.match(/^[a-z]_[a-z0-9_-]+(,[a-z]_[a-z0-9_-]+)*$/i) && !seg.match(/^v\d+$/i)
+  )
+  publicIdWithExt = filteredSegments.join('/')
+
+  // Strip file extension to get canonical public_id
+  const lastDot = publicIdWithExt.lastIndexOf('.')
+  const publicId = lastDot > 0 ? publicIdWithExt.substring(0, lastDot) : publicIdWithExt
+
+  return { publicId, resourceType }
+}
+
+/**
+ * Permanently deletes an asset from Cloudinary by URL or publicId with CDN invalidation.
+ */
+export async function deleteCloudinaryMedia(urlOrPublicId, fallbackResourceType = 'image') {
+  if (!urlOrPublicId) return { success: false, reason: 'empty_identifier' }
+
+  let publicId = urlOrPublicId
+  let resourceType = fallbackResourceType
+
+  if (typeof urlOrPublicId === 'string' && urlOrPublicId.includes('cloudinary.com')) {
+    const details = extractCloudinaryDetails(urlOrPublicId)
+    if (details) {
+      publicId = details.publicId
+      resourceType = details.resourceType || fallbackResourceType
+    }
+  }
+
+  // Sanitize publicId (strip extension if accidentally provided)
+  if (publicId && publicId.includes('.')) {
+    const ext = publicId.split('.').pop().toLowerCase()
+    if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm', 'mov', 'pdf'].includes(ext)) {
+      publicId = publicId.substring(0, publicId.lastIndexOf('.'))
+    }
+  }
+
+  try {
+    const res = await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType,
+      invalidate: true
+    })
+    console.log(`[Cloudinary Destroy] ${publicId} (${resourceType}):`, res)
+
+    // If 'not found' as image, attempt as video just in case
+    if (res.result === 'not found' && resourceType === 'image') {
+      const vidRes = await cloudinary.uploader.destroy(publicId, {
+        resource_type: 'video',
+        invalidate: true
+      })
+      console.log(`[Cloudinary Destroy Retry as Video] ${publicId}:`, vidRes)
+      return vidRes
+    }
+
+    return res
+  } catch (err) {
+    console.error(`[Cloudinary Destroy Error] Failed to delete ${publicId}:`, err.message)
+    return { success: false, error: err.message }
+  }
+}
+
+
 // ─── HEALTH CHECK ──────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({
@@ -467,7 +554,7 @@ app.get('/api/settings', async (req, res) => {
         key: 'main_settings',
         orgName: 'Swayamkrushi',
         tagline: 'A Haven for the Mentally Challenged Since 1987',
-        phone1: '+91 9704245454',
+        phone1: '+91 9100106454',
         phone2: '+91 9963766729',
         email: 'swayamkrushimk@gmail.com',
         address: 'Survey No.687, 688, Jawaharnagar Village, Chennapur, Shamirpet Mandal, Secunderabad, Telangana.',
@@ -478,6 +565,9 @@ app.get('/api/settings', async (req, res) => {
         ifscCode: 'SBIN0011662',
         upiId: 'swayamkrushi@sbi'
       })
+    } else if (settings.phone1 && (settings.phone1.includes('XXXXXXXXXX') || settings.phone1.includes('9704245454'))) {
+      settings.phone1 = '+91 9100106454'
+      await SiteSetting.updateOne({ key: 'main_settings' }, { $set: { phone1: '+91 9100106454' } })
     }
     res.json(settings)
   } catch (err) {
@@ -533,8 +623,6 @@ app.get('/api/articles/:id', async (req, res) => {
       'story-15-years': 'story-fifteen-years',
       'story-sowing-seeds': 'story-tailoring',
       'story-tailoring': 'story-sowing-seeds',
-      'story-group-homes-initiative': 'group-homes',
-      'group-homes': 'story-group-homes-initiative',
     }
     const altId = aliasMap[req.params.id]
 
@@ -576,6 +664,12 @@ app.put('/api/articles/:id', async (req, res) => {
     delete updateData._id
     delete updateData.__v
 
+    // Fetch existing article before updating to identify any removed Cloudinary media
+    let oldArticle = await Article.findOne({ id: req.params.id })
+    if (!oldArticle && req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      oldArticle = await Article.findById(req.params.id)
+    }
+
     let article = await Article.findOneAndUpdate(
       { id: req.params.id },
       { $set: updateData },
@@ -589,6 +683,39 @@ app.put('/api/articles/:id', async (req, res) => {
       )
     }
     if (!article) return res.status(404).json({ error: 'Article not found' })
+
+    // If an older version of this article existed, detect any Cloudinary assets that were deleted
+    if (oldArticle) {
+      const getUrls = (art) => {
+        const urls = []
+        if (art.imageUrl) urls.push(art.imageUrl)
+        if (art.videoUrl) urls.push(art.videoUrl)
+        if (art.videoThumbnailUrl) urls.push(art.videoThumbnailUrl)
+        if (art.videoPosterUrl) urls.push(art.videoPosterUrl)
+        if (Array.isArray(art.images)) {
+          art.images.forEach((img) => {
+            const u = typeof img === 'string' ? img : img?.url
+            if (u) urls.push(u)
+          })
+        }
+        return urls
+      }
+
+      const oldUrls = getUrls(oldArticle)
+      const newUrls = getUrls(article)
+      const newUrlsSet = new Set(newUrls.map((u) => u.trim()))
+
+      // Identify removed URLs
+      const removedUrls = oldUrls.filter((u) => u && !newUrlsSet.has(u.trim()))
+      for (const removedUrl of removedUrls) {
+        if (removedUrl.includes('cloudinary.com')) {
+          deleteCloudinaryMedia(removedUrl).catch((err) =>
+            console.error(`Error deleting Cloudinary media on article update: ${removedUrl}`, err)
+          )
+        }
+      }
+    }
+
     res.json(article)
   } catch (err) {
     res.status(400).json({ error: 'Failed to update article', details: err.message })
@@ -603,11 +730,33 @@ app.delete('/api/articles/:id', async (req, res) => {
       article = await Article.findByIdAndDelete(req.params.id)
     }
     if (!article) return res.status(404).json({ error: 'Article not found' })
+
+    // Purge all associated Cloudinary media for this article
+    const toDelete = []
+    if (article.imageUrl) toDelete.push(article.imageUrl)
+    if (article.videoUrl) toDelete.push(article.videoUrl)
+    if (article.videoThumbnailUrl) toDelete.push(article.videoThumbnailUrl)
+    if (article.videoPosterUrl) toDelete.push(article.videoPosterUrl)
+    if (Array.isArray(article.images)) {
+      article.images.forEach((img) => {
+        const u = typeof img === 'string' ? img : img?.url
+        if (u) toDelete.push(u)
+      })
+    }
+    for (const url of toDelete) {
+      if (url && url.includes('cloudinary.com')) {
+        deleteCloudinaryMedia(url).catch((e) =>
+          console.error(`Failed to delete Cloudinary media for article ${req.params.id}:`, e)
+        )
+      }
+    }
+
     res.json({ message: 'Article deleted successfully', id: req.params.id })
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete article', details: err.message })
   }
 })
+
 
 // ─── ACCOLADES & RECOGNITION API ───────────────────────────────────────────
 app.get('/api/accolades', async (req, res) => {
@@ -664,6 +813,11 @@ app.delete('/api/accolades/:id', async (req, res) => {
   try {
     const item = await Accolade.findOneAndDelete({ id: req.params.id })
     if (!item) return res.status(404).json({ error: 'Accolade not found' })
+    if (item.imageUrl && item.imageUrl.includes('cloudinary.com')) {
+      deleteCloudinaryMedia(item.imageUrl).catch((err) =>
+        console.error(`Failed to delete accolade media for ${item.id}:`, err)
+      )
+    }
     res.json({ message: 'Accolade deleted successfully', id: req.params.id })
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete accolade', details: err.message })
@@ -694,6 +848,11 @@ app.delete('/api/certificates/:id', async (req, res) => {
   try {
     const item = await Certificate.findByIdAndDelete(req.params.id)
     if (!item) return res.status(404).json({ error: 'Certificate not found' })
+    if (item.imageUrl && item.imageUrl.includes('cloudinary.com')) {
+      deleteCloudinaryMedia(item.imageUrl).catch((err) =>
+        console.error(`Failed to delete certificate media for ${item._id}:`, err)
+      )
+    }
     res.json({ message: 'Certificate deleted successfully', id: req.params.id })
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete certificate', details: err.message })
@@ -1123,6 +1282,28 @@ app.post('/api/upload', upload.any(), async (req, res) => {
     res.status(500).json({ error: 'Cloudinary media upload failed', details: err.message })
   }
 })
+
+// ─── CLOUDINARY DELETE MEDIA API ───────────────────────────────────────────
+app.post('/api/delete-media', async (req, res) => {
+  try {
+    const { url, publicId, resourceType } = req.body
+    const identifier = url || publicId
+    if (!identifier) {
+      return res.status(400).json({ error: 'No url or publicId provided for deletion' })
+    }
+
+    const result = await deleteCloudinaryMedia(identifier, resourceType || 'image')
+    res.json({
+      success: true,
+      deleted: identifier,
+      result
+    })
+  } catch (err) {
+    console.error('Cloudinary media deletion endpoint error:', err)
+    res.status(500).json({ error: 'Failed to delete media from Cloudinary', details: err.message })
+  }
+})
+
 
 // ─── START SERVER ──────────────────────────────────────────────────────────
 const startServer = async () => {
