@@ -1324,8 +1324,14 @@ app.get('/api/media-buzz', async (req, res) => {
 app.post('/api/media-buzz', async (req, res) => {
   try {
     const data = req.body
+    if (!data.title || !data.title.trim()) {
+      return res.status(400).json({ error: 'Article title is required' })
+    }
+    if (!data.outlet || !data.outlet.trim()) {
+      return res.status(400).json({ error: 'Media outlet name is required' })
+    }
     if (!data.id) {
-      data.id = (data.title || 'media').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString().slice(-4)
+      data.id = data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString().slice(-4)
     }
     const item = new MediaBuzz(data)
     await item.save()
