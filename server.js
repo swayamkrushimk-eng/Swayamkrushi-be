@@ -863,11 +863,78 @@ app.delete('/api/certificates/:id', async (req, res) => {
   }
 })
 
+function isEventVideoUrl(url) {
+  if (!url || typeof url !== 'string') return false
+  const clean = url.toLowerCase()
+  return clean.includes('/video/upload/') || /\.(mp4|webm|mov|m4v|ogg|ogv|mkv)$/i.test(clean)
+}
+
+function normalizeEventAlbum(body = {}) {
+  const title = typeof body.title === 'string' ? body.title.trim() : ''
+  let media = Array.isArray(body.media) ? body.media : []
+  media = media
+    .map((item) => {
+      const url = item?.url || item?.imageUrl || item?.src || ''
+      if (!url) return null
+      const isVideo = item.mediaType === 'video' || isEventVideoUrl(url)
+      return {
+        url,
+        mediaType: isVideo ? 'video' : 'image',
+        videoThumbnailUrl: item.videoThumbnailUrl || ''
+      }
+    })
+    .filter(Boolean)
+
+  if (!media.length && body.imageUrl) {
+    const isVideo = body.mediaType === 'video' || isEventVideoUrl(body.imageUrl)
+    media = [
+      {
+        url: body.imageUrl,
+        mediaType: isVideo ? 'video' : 'image',
+        videoThumbnailUrl: body.videoThumbnailUrl || ''
+      }
+    ]
+  }
+
+  return {
+    title,
+    caption: typeof body.caption === 'string' ? body.caption : '',
+    media,
+    imageUrl: media[0]?.url || '',
+    mediaType: media[0]?.mediaType || 'image',
+    videoThumbnailUrl: media[0]?.videoThumbnailUrl || '',
+    order: Number.isFinite(Number(body.order)) ? Number(body.order) : 0
+  }
+}
+
+function eventAlbumResponse(doc) {
+  const obj = doc.toObject ? doc.toObject() : doc
+  const album = normalizeEventAlbum(obj)
+  return {
+    ...obj,
+    ...album,
+    _id: obj._id,
+    createdAt: obj.createdAt,
+    updatedAt: obj.updatedAt
+  }
+}
+
+function eventMediaUrls(item) {
+  const urls = []
+  if (Array.isArray(item.media)) {
+    item.media.forEach((media) => {
+      if (media?.url) urls.push(media.url)
+    })
+  }
+  if (item.imageUrl) urls.push(item.imageUrl)
+  return [...new Set(urls)]
+}
+
 // ─── EVENT GALLERY API ─────────────────────────────────────────────────────
 app.get('/api/events', async (req, res) => {
   try {
     const events = await EventImage.find().sort({ order: 1, createdAt: -1 })
-    res.json(events)
+    res.json(events.map(eventAlbumResponse))
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch event images', details: err.message })
   }
@@ -875,36 +942,52 @@ app.get('/api/events', async (req, res) => {
 
 app.post('/api/events', async (req, res) => {
   try {
-    const item = new EventImage(req.body)
+    const album = normalizeEventAlbum(req.body)
+    if (!album.title) {
+      return res.status(400).json({ error: 'Event title is required' })
+    }
+    if (!album.media.length) {
+      return res.status(400).json({ error: 'Upload at least one photo or video' })
+    }
+    const item = new EventImage(album)
     await item.save()
-    res.status(201).json(item)
+    res.status(201).json(eventAlbumResponse(item))
   } catch (err) {
-    res.status(400).json({ error: 'Failed to create event image', details: err.message })
+    res.status(400).json({ error: 'Failed to create event', details: err.message })
   }
 })
 
 app.put('/api/events/:id', async (req, res) => {
   try {
-    const item = await EventImage.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
-    if (!item) return res.status(404).json({ error: 'Event image not found' })
-    res.json(item)
+    const album = normalizeEventAlbum(req.body)
+    if (!album.title) {
+      return res.status(400).json({ error: 'Event title is required' })
+    }
+    if (!album.media.length) {
+      return res.status(400).json({ error: 'Upload at least one photo or video' })
+    }
+    const item = await EventImage.findByIdAndUpdate(req.params.id, album, { new: true, runValidators: true })
+    if (!item) return res.status(404).json({ error: 'Event not found' })
+    res.json(eventAlbumResponse(item))
   } catch (err) {
-    res.status(400).json({ error: 'Failed to update event image', details: err.message })
+    res.status(400).json({ error: 'Failed to update event', details: err.message })
   }
 })
 
 app.delete('/api/events/:id', async (req, res) => {
   try {
     const item = await EventImage.findByIdAndDelete(req.params.id)
-    if (!item) return res.status(404).json({ error: 'Event image not found' })
-    if (item.imageUrl && item.imageUrl.includes('cloudinary.com')) {
-      deleteCloudinaryMedia(item.imageUrl).catch((err) =>
-        console.error(`Failed to delete event media for ${item._id}:`, err)
-      )
-    }
-    res.json({ message: 'Event image deleted successfully', id: req.params.id })
+    if (!item) return res.status(404).json({ error: 'Event not found' })
+    eventMediaUrls(item).forEach((url) => {
+      if (url.includes('cloudinary.com')) {
+        deleteCloudinaryMedia(url).catch((err) =>
+          console.error(`Failed to delete event media for ${item._id}:`, err)
+        )
+      }
+    })
+    res.json({ message: 'Event deleted successfully', id: req.params.id })
   } catch (err) {
-    res.status(500).json({ error: 'Failed to delete event image', details: err.message })
+    res.status(500).json({ error: 'Failed to delete event', details: err.message })
   }
 })
 
