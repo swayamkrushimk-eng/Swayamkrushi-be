@@ -19,6 +19,7 @@ import Insider from './models/Insider.js'
 import CommitteeMember from './models/CommitteeMember.js'
 import MediaBuzz from './models/MediaBuzz.js'
 import EventImage from './models/EventImage.js'
+import ttsRouter from './routes/tts.js'
 
 dotenv.config()
 
@@ -1449,6 +1450,9 @@ app.post('/api/delete-media', async (req, res) => {
 })
 
 
+// ─── CARTESIA AI TEXT-TO-SPEECH ────────────────────────────────────────────
+app.use('/api/tts', ttsRouter)
+
 // ─── START SERVER ──────────────────────────────────────────────────────────
 const startServer = async () => {
   await connectDB()
@@ -1457,6 +1461,9 @@ const startServer = async () => {
     console.log(`  API Health: http://localhost:${PORT}/api/health`)
     console.log(`  Analytics: http://localhost:${PORT}/api/analytics/summary`)
     console.log(`  Subscribers: http://localhost:${PORT}/api/subscribers`)
+    console.log(
+      `  Cartesia TTS: ${process.env.CARTESIA_API_KEY ? 'configured' : 'waiting for CARTESIA_API_KEY'}`
+    )
   })
 }
 
