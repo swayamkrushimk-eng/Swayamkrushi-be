@@ -924,9 +924,11 @@ function eventMediaUrls(item) {
   if (Array.isArray(item.media)) {
     item.media.forEach((media) => {
       if (media?.url) urls.push(media.url)
+      if (media?.videoThumbnailUrl) urls.push(media.videoThumbnailUrl)
     })
   }
   if (item.imageUrl) urls.push(item.imageUrl)
+  if (item.videoThumbnailUrl) urls.push(item.videoThumbnailUrl)
   return [...new Set(urls)]
 }
 
@@ -966,8 +968,18 @@ app.put('/api/events/:id', async (req, res) => {
     if (!album.media.length) {
       return res.status(400).json({ error: 'Upload at least one photo or video' })
     }
+    const existing = await EventImage.findById(req.params.id)
+    if (!existing) return res.status(404).json({ error: 'Event not found' })
+    const oldUrls = eventMediaUrls(existing)
     const item = await EventImage.findByIdAndUpdate(req.params.id, album, { new: true, runValidators: true })
-    if (!item) return res.status(404).json({ error: 'Event not found' })
+    const newUrls = new Set(eventMediaUrls(item))
+    oldUrls.forEach((url) => {
+      if (url && url.includes('cloudinary.com') && !newUrls.has(url)) {
+        deleteCloudinaryMedia(url).catch((err) =>
+          console.error(`Failed to delete removed event media for ${item._id}:`, err)
+        )
+      }
+    })
     res.json(eventAlbumResponse(item))
   } catch (err) {
     res.status(400).json({ error: 'Failed to update event', details: err.message })
