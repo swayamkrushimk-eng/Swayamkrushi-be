@@ -1378,7 +1378,23 @@ app.delete('/api/media-buzz/:id', async (req, res) => {
 })
 
 // ─── CLOUDINARY DIRECT UPLOAD API (Images & Videos) ─────────────────────────
-app.post('/api/upload', upload.any(), async (req, res) => {
+app.post('/api/upload', (req, res, next) => {
+  upload.any()(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          error: 'File too large',
+          details: 'Maximum upload size is 100 MB. Compress the file and try again.'
+        })
+      }
+      return res.status(400).json({ error: 'Upload failed', details: err.message })
+    }
+    if (err) {
+      return res.status(400).json({ error: 'Upload failed', details: err.message })
+    }
+    next()
+  })
+}, async (req, res) => {
   try {
     const file = req.file || (req.files && req.files[0])
     if (!file) {
@@ -1386,11 +1402,16 @@ app.post('/api/upload', upload.any(), async (req, res) => {
     }
 
     const ext = file.originalname ? file.originalname.toLowerCase().split('.').pop() : ''
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'avif', 'heic', 'heif']
     const videoExtensions = ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'ogg', '3gp', 'flv', 'wmv', 'ts']
-    const isVideo =
-      req.body?.resourceType === 'video' ||
-      (file.mimetype && file.mimetype.startsWith('video/')) ||
-      videoExtensions.includes(ext)
+    const requestedType = String(req.body?.resourceType || '').toLowerCase()
+    const isImageByFile =
+      (file.mimetype && file.mimetype.startsWith('image/')) || imageExtensions.includes(ext)
+    const isVideoByFile =
+      (file.mimetype && file.mimetype.startsWith('video/')) || videoExtensions.includes(ext)
+    // Prefer real file type over client hint so JPEGs are never uploaded as videos
+    const isImage = isImageByFile || (requestedType === 'image' && !isVideoByFile)
+    const isVideo = !isImage && (isVideoByFile || requestedType === 'video')
 
     const uploadStream = (buffer, options) => {
       return new Promise((resolve, reject) => {
@@ -1404,7 +1425,7 @@ app.post('/api/upload', upload.any(), async (req, res) => {
 
     const uploadOptions = {
       folder: 'swayamkrushi',
-      resource_type: isVideo ? 'video' : 'auto'
+      resource_type: isVideo ? 'video' : isImage ? 'image' : 'auto'
     }
 
     if (isVideo) {
@@ -1434,7 +1455,14 @@ app.post('/api/upload', upload.any(), async (req, res) => {
     })
   } catch (err) {
     console.error('Cloudinary media upload error:', err)
-    res.status(500).json({ error: 'Cloudinary media upload failed', details: err.message })
+    const details = err?.message || String(err)
+    const tooLarge = /file size too large/i.test(details)
+    res.status(tooLarge ? 413 : 500).json({
+      error: tooLarge
+        ? 'File too large for Cloudinary (images max 10 MB on free/basic plans)'
+        : 'Cloudinary media upload failed',
+      details
+    })
   }
 })
 
