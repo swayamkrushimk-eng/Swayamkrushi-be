@@ -98,7 +98,30 @@ function writeCache(key, buffer) {
   audioCache.set(key, { buffer, createdAt: Date.now() })
 }
 
+let creditsExhaustedUntil = 0
+
+function markCreditsExhausted() {
+  creditsExhaustedUntil = Date.now() + 15 * 60 * 1000
+}
+
+function creditsAreExhausted() {
+  return Date.now() < creditsExhaustedUntil
+}
+
+function isCreditsError(status, details = '') {
+  const text = String(details).toLowerCase()
+  return (
+    status === 402 ||
+    text.includes('credit') ||
+    text.includes('payment required') ||
+    text.includes('upgrade your subscription')
+  )
+}
+
 function userSafeCartesiaError(status, details = '') {
+  if (isCreditsError(status, details)) {
+    return 'Voice narration credits have run out. Please add Cartesia credits and try again.'
+  }
   if (status === 401 || status === 403) {
     return 'Voice narration is temporarily unavailable.'
   }
@@ -150,9 +173,17 @@ async function fetchChunkAudio(chunkText, apiKey) {
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '')
+        if (isCreditsError(response.status, errorText)) {
+          markCreditsExhausted()
+        }
         const retryable = response.status === 429 || response.status >= 500
         lastError = Object.assign(new Error(userSafeCartesiaError(response.status, errorText)), {
-          status: response.status >= 500 ? 502 : response.status,
+          status: isCreditsError(response.status, errorText)
+            ? 402
+            : response.status >= 500
+              ? 502
+              : response.status,
+          code: isCreditsError(response.status, errorText) ? 'TTS_CREDITS_EXHAUSTED' : undefined,
           retryable,
         })
         if (!retryable || attempt === attempts) throw lastError
@@ -234,10 +265,17 @@ export async function synthesizeSpeech(rawText) {
     return { audioBuffer: cached, cached: true, contentType: 'audio/mpeg' }
   }
 
+  if (creditsAreExhausted()) {
+    const err = new Error(
+      'Voice narration credits have run out. Please add Cartesia credits and try again.'
+    )
+    err.status = 402
+    err.code = 'TTS_CREDITS_EXHAUSTED'
+    throw err
+  }
+
   const chunks = splitTextIntoChunks(transcript)
-  const buffers = await mapPool(chunks, LIMITS.chunkConcurrency, (chunk) =>
-    fetchChunkAudio(chunk, apiKey)
-  )
+  const buffers = await mapPool(chunks, 1, (chunk) => fetchChunkAudio(chunk, apiKey))
   const audioBuffer = buffers.length === 1 ? buffers[0] : Buffer.concat(buffers)
   writeCache(key, audioBuffer)
 
