@@ -18,6 +18,7 @@ import EmailCampaign from './models/EmailCampaign.js'
 import Insider from './models/Insider.js'
 import CommitteeMember from './models/CommitteeMember.js'
 import MediaBuzz from './models/MediaBuzz.js'
+import EventImage from './models/EventImage.js'
 
 dotenv.config()
 
@@ -502,6 +503,7 @@ app.get('/api/admin/stats', async (req, res) => {
       articlesCount,
       accoladesCount,
       certificatesCount,
+      eventsCount,
       faqsCount,
       inquiriesCount,
       unreadInquiries,
@@ -515,6 +517,7 @@ app.get('/api/admin/stats', async (req, res) => {
       Article.countDocuments(),
       Accolade.countDocuments(),
       Certificate.countDocuments(),
+      EventImage.countDocuments(),
       Faq.countDocuments(),
       ContactMessage.countDocuments(),
       ContactMessage.countDocuments({ status: { $ne: 'read' } }),
@@ -530,6 +533,7 @@ app.get('/api/admin/stats', async (req, res) => {
       articles: articlesCount,
       accolades: accoladesCount,
       certificates: certificatesCount,
+      events: eventsCount,
       faqs: faqsCount,
       inquiries: inquiriesCount,
       unreadInquiries,
@@ -856,6 +860,51 @@ app.delete('/api/certificates/:id', async (req, res) => {
     res.json({ message: 'Certificate deleted successfully', id: req.params.id })
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete certificate', details: err.message })
+  }
+})
+
+// ─── EVENT GALLERY API ─────────────────────────────────────────────────────
+app.get('/api/events', async (req, res) => {
+  try {
+    const events = await EventImage.find().sort({ order: 1, createdAt: -1 })
+    res.json(events)
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch event images', details: err.message })
+  }
+})
+
+app.post('/api/events', async (req, res) => {
+  try {
+    const item = new EventImage(req.body)
+    await item.save()
+    res.status(201).json(item)
+  } catch (err) {
+    res.status(400).json({ error: 'Failed to create event image', details: err.message })
+  }
+})
+
+app.put('/api/events/:id', async (req, res) => {
+  try {
+    const item = await EventImage.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+    if (!item) return res.status(404).json({ error: 'Event image not found' })
+    res.json(item)
+  } catch (err) {
+    res.status(400).json({ error: 'Failed to update event image', details: err.message })
+  }
+})
+
+app.delete('/api/events/:id', async (req, res) => {
+  try {
+    const item = await EventImage.findByIdAndDelete(req.params.id)
+    if (!item) return res.status(404).json({ error: 'Event image not found' })
+    if (item.imageUrl && item.imageUrl.includes('cloudinary.com')) {
+      deleteCloudinaryMedia(item.imageUrl).catch((err) =>
+        console.error(`Failed to delete event media for ${item._id}:`, err)
+      )
+    }
+    res.json({ message: 'Event image deleted successfully', id: req.params.id })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete event image', details: err.message })
   }
 })
 
