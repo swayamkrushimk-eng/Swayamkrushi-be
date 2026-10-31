@@ -703,6 +703,10 @@ app.put('/api/articles/:id', async (req, res) => {
             if (u) urls.push(u)
           })
         }
+        if (art.contentHtml && typeof art.contentHtml === 'string') {
+          const matches = art.contentHtml.match(/https?:\/\/[^\s"'>)]+/g) || []
+          matches.forEach((u) => urls.push(u))
+        }
         return urls
       }
 
