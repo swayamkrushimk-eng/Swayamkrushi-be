@@ -14,6 +14,7 @@ const mediaBuzzSchema = new mongoose.Schema(
     category: { type: String, default: 'General Coverage' },
     badge: { type: String, default: 'MEDIA SPOTLIGHT' },
     image: { type: String, default: '' },
+    video: { type: String, default: '' },
     isClipping: { type: Boolean, default: false },
     excerpt: { type: String, default: '' },
     readTime: { type: String, default: 'Read Report' },
