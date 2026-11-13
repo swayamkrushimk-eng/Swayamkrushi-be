@@ -87,6 +87,14 @@ const articleSchema = new mongoose.Schema(
     order: {
       type: Number,
       default: 0
+    },
+    narrationAudioUrl: {
+      type: String,
+      default: ''
+    },
+    narrationHash: {
+      type: String,
+      default: ''
     }
   },
   {
