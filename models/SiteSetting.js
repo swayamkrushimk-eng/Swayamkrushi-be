@@ -84,7 +84,7 @@ const siteSettingSchema = new mongoose.Schema(
       type: String,
       default: 'center 52%'
     },
-    /** When true, first-time visitors get the guided welcome → home → Dare to Dream video tour */
+    /** When true, first-time visitors get the guided welcome → home → configured video tour */
     welcomeTourEnabled: {
       type: Boolean,
       default: false
@@ -93,6 +93,11 @@ const siteSettingSchema = new mongoose.Schema(
     welcomeTourVersion: {
       type: Number,
       default: 1
+    },
+    /** Article page URL/path opened after the home hold (e.g. /article/dare-to-dream) */
+    welcomeTourVideoUrl: {
+      type: String,
+      default: ''
     }
   },
   {
