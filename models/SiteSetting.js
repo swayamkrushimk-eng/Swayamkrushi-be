@@ -83,6 +83,11 @@ const siteSettingSchema = new mongoose.Schema(
     circleRightPos: {
       type: String,
       default: 'center 52%'
+    },
+    /** When true, first-time visitors get the guided welcome → home → Dare to Dream video tour */
+    welcomeTourEnabled: {
+      type: Boolean,
+      default: false
     }
   },
   {
