@@ -60,6 +60,16 @@ const articleSchema = new mongoose.Schema(
       type: String,
       default: ''
     },
+    videoPlacement: {
+      type: String,
+      enum: ['top', 'center', 'left', 'right'],
+      default: 'center'
+    },
+    videoSize: {
+      type: String,
+      enum: ['big', 'small'],
+      default: 'big'
+    },
     imageUrl: {
       type: String,
       default: ''
