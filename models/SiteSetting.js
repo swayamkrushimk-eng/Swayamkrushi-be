@@ -88,6 +88,11 @@ const siteSettingSchema = new mongoose.Schema(
     welcomeTourEnabled: {
       type: Boolean,
       default: false
+    },
+    /** Bumped each time the tour is turned ON so browsers can run it again */
+    welcomeTourVersion: {
+      type: Number,
+      default: 1
     }
   },
   {
