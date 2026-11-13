@@ -80,7 +80,7 @@ const MEDIA_BUZZ_DATA = [
   },
   {
     id: 'telangana-today-epaper-35-years',
-    title: 'Telangana Today E-Paper: Swayamkrushi 35 Years Milestone Coverage',
+    title: 'Artist who paints with elbow stumps',
     outlet: 'Telangana Today',
     outletType: 'Print & Newspapers',
     date: 'August 2026',
