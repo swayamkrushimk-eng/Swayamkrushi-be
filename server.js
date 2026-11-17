@@ -662,6 +662,112 @@ app.post('/api/articles', async (req, res) => {
   }
 })
 
+// A caption edit from the admin was promoting an in-body video to the hero and
+// dropping the size of photos that are already placed in the story. When the
+// wording of the story did not change, keep that layout and apply caption text only.
+function mediaFileName(url) {
+  return String(url || '').split('?')[0].split('/').pop()
+}
+
+function storyBodyText(html) {
+  return String(html || '')
+    .replace(/<figcaption[\s\S]*?<\/figcaption>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function escapeCaption(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+function preservePlacedStoryLayout(oldArticle, updateData) {
+  if (!oldArticle || typeof updateData.contentHtml !== 'string' || !oldArticle.contentHtml) return
+  const oldHtml = oldArticle.contentHtml
+  const newHtml = updateData.contentHtml
+  if (storyBodyText(oldHtml) !== storyBodyText(newHtml)) return
+
+  const oldVideos = [...oldHtml.matchAll(/src=["']([^"']+\.mp4[^"']*)["']/gi)].map((m) => mediaFileName(m[1]))
+  const newVideos = [...newHtml.matchAll(/src=["']([^"']+\.mp4[^"']*)["']/gi)].map((m) => mediaFileName(m[1]))
+  const videoStripped = oldVideos.some((file) => file && !newVideos.includes(file))
+  const oldBig = (oldHtml.match(/size-big/g) || []).length
+  const newBig = (newHtml.match(/size-big/g) || []).length
+  const classesStripped = oldBig > 0 && newBig < oldBig
+  const oldFeatured = String(oldArticle.featuredMediaType || oldArticle.mediaType || 'image')
+  const newFeatured = String(updateData.featuredMediaType || updateData.mediaType || '')
+  const promotedToVideo = oldFeatured !== 'video' && newFeatured === 'video'
+  if (!videoStripped && !classesStripped && !promotedToVideo) return
+
+  let html = oldHtml
+  const incoming = Array.isArray(updateData.images) ? updateData.images : []
+  for (const img of incoming) {
+    if (!img || typeof img !== 'object') continue
+    const caption = String(img.caption || '').trim()
+    if (!caption || !img.url) continue
+    const file = mediaFileName(img.url).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const figureRe = new RegExp(`(<figure[^>]*>[\\s\\S]*?${file}[\\s\\S]*?</figure>)`, 'i')
+    html = html.replace(figureRe, (figure) => {
+      const without = figure.replace(/<figcaption[\s\S]*?<\/figcaption>/i, '')
+      return without.replace(/<\/figure>/i, `<figcaption class="article-inline-caption">${escapeCaption(caption)}</figcaption></figure>`)
+    })
+  }
+  updateData.contentHtml = html
+
+  if (Array.isArray(oldArticle.images)) {
+    const previousByFile = new Map()
+    for (const img of oldArticle.images) {
+      const url = typeof img === 'string' ? img : img?.url
+      previousByFile.set(mediaFileName(url), img)
+    }
+    const merged = []
+    const seen = new Set()
+    const source = incoming.length ? incoming : oldArticle.images
+    for (const img of source) {
+      const url = typeof img === 'string' ? img : img?.url
+      const file = mediaFileName(url)
+      if (!file || seen.has(file)) continue
+      seen.add(file)
+      const previous = previousByFile.get(file)
+      const previousObj = previous && typeof previous === 'object'
+        ? (typeof previous.toObject === 'function' ? previous.toObject() : { ...previous })
+        : null
+      if (!previousObj) {
+        merged.push(img)
+        continue
+      }
+      const caption = img && typeof img === 'object' && img.caption != null ? img.caption : previousObj.caption
+      merged.push({
+        ...previousObj,
+        ...(typeof img === 'object' ? img : {}),
+        url: previousObj.url || url,
+        caption,
+        alt: caption,
+        placement: previousObj.placement || (typeof img === 'object' ? img.placement : undefined),
+        size: previousObj.size || (typeof img === 'object' ? img.size : undefined),
+        afterHeading: previousObj.afterHeading || (typeof img === 'object' ? img.afterHeading : undefined),
+        type: previousObj.type || (typeof img === 'object' ? img.type : undefined)
+      })
+    }
+    for (const img of oldArticle.images) {
+      const file = mediaFileName(typeof img === 'string' ? img : img?.url)
+      if (file && !seen.has(file)) merged.push(typeof img.toObject === 'function' ? img.toObject() : img)
+    }
+    updateData.images = merged
+  }
+
+  if (promotedToVideo || videoStripped) {
+    if (oldFeatured !== 'video') {
+      updateData.featuredMediaType = oldArticle.featuredMediaType || 'image'
+      updateData.mediaType = oldArticle.mediaType || 'image'
+    }
+    if (!oldArticle.imageUrl) updateData.imageUrl = ''
+    if (oldArticle.videoUrl) updateData.videoUrl = oldArticle.videoUrl
+  }
+}
+
 // PUT update article
 app.put('/api/articles/:id', async (req, res) => {
   try {
@@ -674,6 +780,8 @@ app.put('/api/articles/:id', async (req, res) => {
     if (!oldArticle && req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       oldArticle = await Article.findById(req.params.id)
     }
+
+    preservePlacedStoryLayout(oldArticle, updateData)
 
     let article = await Article.findOneAndUpdate(
       { id: req.params.id },
