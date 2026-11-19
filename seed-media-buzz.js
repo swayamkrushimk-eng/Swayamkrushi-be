@@ -595,6 +595,24 @@ const MEDIA_BUZZ_DATA = [
     order: 104
   },
   {
+    id: 'youtube-dd-news-seethakka',
+    title: 'Minister Seethakka Attends 35th Anniversary Celebrations of Swayamkrushi in Jawaharnagar',
+    outlet: 'DD NEWS Telangana',
+    outletType: 'Digital & Magazines',
+    date: '2026',
+    category: 'Video Coverage',
+    badge: 'YOUTUBE',
+    image: '',
+    video: 'https://www.youtube.com/watch?v=T0vwBO5iPBc',
+    isClipping: false,
+    excerpt: 'DD NEWS Telangana coverage of Minister Seethakka attending Swayamkrushi’s 35th anniversary celebrations in Jawaharnagar.',
+    readTime: 'YouTube',
+    tags: ['YouTube', 'DD NEWS Telangana', 'Seethakka', 'Coral Jubilee'],
+    articleUrl: 'https://youtu.be/T0vwBO5iPBc',
+    featured: true,
+    order: 99
+  },
+  {
     id: 'brk-news-reporter-ramu',
     title: 'BRK News: Swayamkrushi Coverage — Reporter Ramu',
     outlet: 'BRK NEWS Reporter Ramu',
